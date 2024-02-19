@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:lab3/screens/exam_map_screen.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'map_screen.dart';
+import 'package:geofence_service/geofence_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,11 +40,22 @@ class MyApp extends StatelessWidget {
 class ExamSchedulingScreen extends StatefulWidget {
   const ExamSchedulingScreen({Key? key}) : super(key: key);
 
+  void _goToLocation(String location) async {
+    // Assuming location is a string like "latitude,longitude".
+    var uri = Uri.parse("google.navigation:q=$location&mode=d");
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      throw 'Could not launch $uri';
+    }
+  }
+
   @override
   _ExamSchedulingScreenState createState() => _ExamSchedulingScreenState();
 }
 
 class _ExamSchedulingScreenState extends State<ExamSchedulingScreen> {
+  final TextEditingController _locationController = TextEditingController();
   List<ExamSchedule> examSchedules = [];
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
@@ -60,10 +75,18 @@ class _ExamSchedulingScreenState extends State<ExamSchedulingScreen> {
         actions: [
           IconButton(icon: const Icon(Icons.add), onPressed: () => _showAddExamDialog(context)),
           IconButton(icon: const Icon(Icons.calendar_today), onPressed: _openCalendarView),
+          IconButton(
+            icon: const Icon(Icons.map),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => ExamMapScreen(examSchedules: examSchedules),
+              ),
+            ),
+          ),
         ],
       ),
       body: GridView.builder(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 1, childAspectRatio: 4.0, crossAxisSpacing: 8.0, mainAxisSpacing: 8.0),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 1, childAspectRatio: 2.3, crossAxisSpacing: 8.0, mainAxisSpacing: 8.0),
         itemCount: examSchedules.length,
         itemBuilder: (BuildContext context, int index) {
           return _buildExamCard(examSchedules[index]);
@@ -76,6 +99,7 @@ class _ExamSchedulingScreenState extends State<ExamSchedulingScreen> {
     String subjectName = '';
     DateTime? examDate;
     String examTime = '';
+    String examLocation = '';
 
     await showDialog(
       context: context,
@@ -109,6 +133,23 @@ class _ExamSchedulingScreenState extends State<ExamSchedulingScreen> {
                   examTime = value;
                 },
               ),
+              TextFormField(
+                controller: _locationController,
+                decoration: InputDecoration(
+                  labelText: 'Exam Location',
+                  suffixIcon: IconButton(
+                    icon: Icon(Icons.map),
+                    onPressed: () async {
+                      final selectedLocation = await Navigator.of(context).push<String>(
+                        MaterialPageRoute(builder: (context) => MapScreen()),
+                      );
+                      if (selectedLocation != null) {
+                        _locationController.text = selectedLocation;
+                      }
+                    },
+                  ),
+                ),
+              ),
             ],
           ),
           actions: [
@@ -118,15 +159,15 @@ class _ExamSchedulingScreenState extends State<ExamSchedulingScreen> {
             ),
             TextButton(
               onPressed: () {
-                if (subjectName.isNotEmpty && examDate != null && examTime.isNotEmpty) {
+                examLocation = _locationController.text;
+                if (subjectName.isNotEmpty && examDate != null && examTime.isNotEmpty && examLocation.isNotEmpty) {
                   setState(() {
-                    final examSchedule = ExamSchedule(
+                    examSchedules.add(ExamSchedule(
                       subjectName: subjectName,
                       examDate: examDate!,
                       examTime: examTime,
-                    );
-                    examSchedules.add(examSchedule);
-                    // Optionally trigger a summary notification here
+                      examLocation: examLocation,
+                    ));
                   });
                   Navigator.of(context).pop();
                 }
@@ -137,6 +178,7 @@ class _ExamSchedulingScreenState extends State<ExamSchedulingScreen> {
         );
       },
     );
+
   }
 
   Future<void> scheduleDailyExamsSummaryNotification() async {
@@ -176,36 +218,52 @@ class _ExamSchedulingScreenState extends State<ExamSchedulingScreen> {
 
   Widget _buildExamCard(ExamSchedule examSchedule) {
     return Card(
-      elevation: 3.0,
+      elevation: 20.0,
       child: Padding(
-        padding: const EdgeInsets.all(8.0),
+        padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               examSchedule.subjectName,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 20.0,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20.0),
             ),
             Text(
               'Date: ${DateFormat('yyyy-MM-dd').format(examSchedule.examDate)}',
-              style: const TextStyle(
-                color: Colors.grey,
-              ),
+              style: const TextStyle(color: Colors.grey),
             ),
             Text(
               'Time: ${examSchedule.examTime}',
-              style: const TextStyle(
-                color: Colors.grey,
-              ),
+              style: const TextStyle(color: Colors.grey),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Location: ${examSchedule.examLocation}',
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.directions),
+                  onPressed: () async {
+                    // Assuming examLocation is in "latitude,longitude" format
+                    var googleMapsUrl = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${examSchedule.examLocation}&travelmode=driving");
+                    if (await canLaunchUrl(googleMapsUrl)) {
+                      await launchUrl(googleMapsUrl);
+                    } else {
+                      print('Could not launch $googleMapsUrl');
+                    }
+                  },
+                ),
+              ],
             ),
           ],
         ),
       ),
     );
   }
+
 
   void _openCalendarView() {
     showDialog(
@@ -306,10 +364,12 @@ class ExamSchedule {
   final String subjectName;
   final DateTime examDate;
   final String examTime;
+  final String examLocation;
 
   ExamSchedule({
     required this.subjectName,
     required this.examDate,
     required this.examTime,
+    required this.examLocation,
   });
 }
